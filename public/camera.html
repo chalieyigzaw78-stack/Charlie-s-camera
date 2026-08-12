@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Home Camera — Camera Mode</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="wrap">
+
+  <div id="pin-screen">
+    <div class="eyebrow"><span class="dot"></span>CAMERA MODE</div>
+    <h1>Place this phone, then connect</h1>
+    <p class="sub">Enter the same PIN you set on the server. This phone will start streaming as soon as the viewer connects.</p>
+    <div class="card">
+      <label for="pin">Room PIN</label>
+      <input type="tel" id="pin" placeholder="••••••" inputmode="numeric" autocomplete="off">
+      <button class="primary" id="join-btn">Start Camera</button>
+      <div class="error" id="error-msg"></div>
+    </div>
+  </div>
+
+  <div id="live-screen" style="display:none;">
+    <div class="eyebrow"><span class="dot live"></span>CAMERA — <span id="conn-state">WAITING FOR VIEWER</span></div>
+    <h1>Streaming</h1>
+    <p class="sub">Keep this phone plugged in and Auto-Lock disabled so the stream stays alive.</p>
+
+    <div class="video-shell">
+      <video id="local-video" autoplay playsinline muted></video>
+      <div class="hud">
+        <div class="hud-top">
+          <span id="hud-status">● STANDBY</span>
+          <span id="hud-clock">00:00:00</span>
+        </div>
+        <div class="hud-bottom">CAM 01 · HOME</div>
+      </div>
+    </div>
+
+    <div class="controls-row">
+      <button class="icon-btn" id="flip-btn">🔄 Flip Camera</button>
+      <button class="icon-btn active" id="mute-btn">🎙️ Mic On</button>
+    </div>
+    <div class="status-line" id="status-line"></div>
+  </div>
+
+  <a class="back-link" href="index.html">&larr; back</a>
+</div>
+
+<script src="/socket.io/socket.io.js"></script>
+<script src="ice-config.js"></script>
+<script src="camera.js"></script>
+</body>
+</html>
