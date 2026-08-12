@@ -1,4 +1,10 @@
 (() => {
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('/sw.js').catch(() => { /* ignore */ });
+    });
+  }
+
   const pinScreen = document.getElementById('pin-screen');
   const liveScreen = document.getElementById('live-screen');
   const pinInput = document.getElementById('pin');
