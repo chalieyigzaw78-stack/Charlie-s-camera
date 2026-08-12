@@ -1,0 +1,15 @@
+{
+  "name": "Home Camera",
+  "short_name": "Home Cam",
+  "description": "Live camera streaming from this phone.",
+  "start_url": "/camera.html",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#12161a",
+  "theme_color": "#12161a",
+  "icons": [
+    { "src": "/icons/camera-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/icons/camera-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}
