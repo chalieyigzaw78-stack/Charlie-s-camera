@@ -24,6 +24,39 @@ app.post('/api/check-pin', (req, res) => {
   res.json({ valid: pin === ROOM_PIN });
 });
 
+// Fetches a fresh set of ICE servers (STUN + TURN) using your Metered.ca TURN credentials
+// so phones on different networks (e.g. different WiFi, mobile data) can reliably connect.
+// Falls back to public STUN + the shared Open Relay demo TURN if Metered isn't configured.
+app.get('/api/ice-servers', (req, res) => {
+  const username = process.env.METERED_TURN_USERNAME;
+  const credential = process.env.METERED_TURN_PASSWORD;
+
+  const fallback = {
+    iceServers: [
+      { urls: 'stun:stun.l.google.com:19302' },
+      { urls: 'turn:openrelay.metered.ca:80', username: 'openrelayproject', credential: 'openrelayproject' },
+      { urls: 'turn:openrelay.metered.ca:443', username: 'openrelayproject', credential: 'openrelayproject' },
+      { urls: 'turn:openrelay.metered.ca:443?transport=tcp', username: 'openrelayproject', credential: 'openrelayproject' },
+    ],
+  };
+
+  if (!username || !credential) {
+    res.json(fallback);
+    return;
+  }
+
+  // Free plan only has access to the "standard" relay region (not "global", which is paid).
+  res.json({
+    iceServers: [
+      { urls: 'stun:stun.relay.metered.ca:80' },
+      { urls: 'turn:standard.relay.metered.ca:80', username, credential },
+      { urls: 'turn:standard.relay.metered.ca:80?transport=tcp', username, credential },
+      { urls: 'turn:standard.relay.metered.ca:443', username, credential },
+      { urls: 'turns:standard.relay.metered.ca:443?transport=tcp', username, credential },
+    ],
+  });
+});
+
 // Track who is in the room: one "camera" and one "viewer"
 const room = {
   camera: null, // socket.id of the camera phone
