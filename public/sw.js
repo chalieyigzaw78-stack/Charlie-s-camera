@@ -1,8 +1,14 @@
 // Minimal service worker — just enough to make the app installable
 // and let the page shell load instantly even on a flaky connection.
 // It does NOT cache video/audio streams or signaling traffic.
+//
+// Uses a network-first strategy: always try to fetch the latest version,
+// only falling back to the cached copy if the network request fails.
+// This avoids serving stale JS after an app update (which previously
+// caused a hard failure when ice-config.js changed but the old cached
+// copy was still being served).
 
-const CACHE_NAME = 'home-camera-shell-v1';
+const CACHE_NAME = 'home-camera-shell-v2';
 const SHELL_FILES = [
   '/style.css',
   '/ice-config.js',
@@ -32,6 +38,12 @@ self.addEventListener('fetch', (event) => {
   if (!SHELL_FILES.includes(url.pathname)) return;
 
   event.respondWith(
-    caches.match(event.request).then((cached) => cached || fetch(event.request))
+    fetch(event.request)
+      .then((response) => {
+        const clone = response.clone();
+        caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
+        return response;
+      })
+      .catch(() => caches.match(event.request))
   );
 });
