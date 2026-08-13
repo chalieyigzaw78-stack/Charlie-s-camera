@@ -109,7 +109,11 @@
     socket.on('joined', async () => {
       pinScreen.style.display = 'none';
       liveScreen.style.display = 'block';
-      iceServers = await getIceServers();
+      try {
+        iceServers = await getIceServers();
+      } catch (err) {
+        iceServers = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
+      }
       try {
         localStream = await getLocalStream();
       } catch (err) {
