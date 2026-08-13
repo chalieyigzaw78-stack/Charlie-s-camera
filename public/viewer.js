@@ -17,6 +17,7 @@
   const statusLine = document.getElementById('status-line');
   const muteBtn = document.getElementById('mute-btn');
   const recordBtn = document.getElementById('record-btn');
+  const retryBtn = document.getElementById('retry-btn');
 
   let socket, pc, localStream, remoteStream;
   let iceServers = null;
@@ -77,6 +78,12 @@
       } else if (['disconnected', 'failed', 'closed'].includes(pc.connectionState)) {
         hudStatus.textContent = '● OFFLINE';
         statusLine.textContent = 'Camera disconnected.';
+      }
+    };
+
+    pc.oniceconnectionstatechange = () => {
+      if (pc.connectionState !== 'connected') {
+        statusLine.textContent = `Connecting... (ICE: ${pc.iceConnectionState}, gathering: ${pc.iceGatheringState})`;
       }
     };
   }
@@ -196,5 +203,14 @@
       recordBtn.textContent = '⏺ Record';
       recordBtn.classList.remove('active');
     }
+  });
+
+  retryBtn.addEventListener('click', () => {
+    statusLine.textContent = 'Retrying...';
+    if (pc) {
+      pc.close();
+      pc = null;
+    }
+    startCall();
   });
 })();
