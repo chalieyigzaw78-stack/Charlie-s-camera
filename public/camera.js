@@ -19,6 +19,7 @@
   const muteBtn = document.getElementById('mute-btn');
 
   let socket, pc, localStream;
+  let iceServers = null;
   let facingMode = 'environment';
   let micOn = true;
   let startTime = null;
@@ -54,7 +55,7 @@
   }
 
   function createPeerConnection() {
-    pc = new RTCPeerConnection(ICE_SERVERS);
+    pc = new RTCPeerConnection(iceServers);
 
     localStream.getTracks().forEach((track) => pc.addTrack(track, localStream));
 
@@ -72,6 +73,12 @@
       } else if (['disconnected', 'failed', 'closed'].includes(pc.connectionState)) {
         hudStatus.textContent = '● STANDBY';
         statusLine.textContent = 'Waiting for viewer to reconnect...';
+      }
+    };
+
+    pc.oniceconnectionstatechange = () => {
+      if (pc.connectionState !== 'connected') {
+        statusLine.textContent = `Connecting... (ICE: ${pc.iceConnectionState}, gathering: ${pc.iceGatheringState})`;
       }
     };
   }
@@ -98,6 +105,7 @@
     socket.on('joined', async () => {
       pinScreen.style.display = 'none';
       liveScreen.style.display = 'block';
+      iceServers = await getIceServers();
       try {
         await startCamera();
       } catch (err) {
