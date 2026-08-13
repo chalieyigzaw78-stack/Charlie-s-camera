@@ -19,6 +19,7 @@
   const recordBtn = document.getElementById('record-btn');
 
   let socket, pc, localStream, remoteStream;
+  let iceServers = null;
   let micOn = true;
   let startTime = null;
   let clockTimer = null;
@@ -45,15 +46,20 @@
   }
 
   function createPeerConnection() {
-    pc = new RTCPeerConnection(ICE_SERVERS);
+    pc = new RTCPeerConnection(iceServers);
 
     localStream.getTracks().forEach((track) => pc.addTrack(track, localStream));
+    // Explicitly reserve a slot to receive video — without this, the offer only
+    // contains an audio line (from our mic track) and the camera's video has
+    // nowhere to go, even though it's being sent.
+    pc.addTransceiver('video', { direction: 'recvonly' });
 
     remoteStream = new MediaStream();
     remoteVideo.srcObject = remoteStream;
 
     pc.ontrack = (event) => {
       remoteStream.addTrack(event.track);
+      remoteVideo.play().catch(() => { /* will resume on next track/gesture */ });
     };
 
     pc.onicecandidate = (event) => {
@@ -96,6 +102,7 @@
     socket.on('joined', async () => {
       pinScreen.style.display = 'none';
       liveScreen.style.display = 'block';
+      iceServers = await getIceServers();
       try {
         localStream = await getLocalStream();
       } catch (err) {
