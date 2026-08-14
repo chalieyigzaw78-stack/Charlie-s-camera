@@ -18,6 +18,8 @@
   const muteBtn = document.getElementById('mute-btn');
   const recordBtn = document.getElementById('record-btn');
   const retryBtn = document.getElementById('retry-btn');
+  const fullscreenBtn = document.getElementById('fullscreen-btn');
+  const videoShell = document.getElementById('video-shell');
 
   let socket, pc, localStream, remoteStream;
   let iceServers = null;
@@ -26,6 +28,22 @@
   let clockTimer = null;
   let mediaRecorder, recordedChunks = [];
   let isRecording = false;
+  let wakeLock = null;
+
+  async function requestWakeLock() {
+    try {
+      if ('wakeLock' in navigator) {
+        wakeLock = await navigator.wakeLock.request('screen');
+        wakeLock.addEventListener('release', () => { wakeLock = null; });
+      }
+    } catch (err) { /* not supported or denied — fine, just may sleep */ }
+  }
+
+  document.addEventListener('visibilitychange', async () => {
+    if (document.visibilityState === 'visible' && !wakeLock) {
+      await requestWakeLock();
+    }
+  });
 
   function fmtClock(ms) {
     const s = Math.floor(ms / 1000);
@@ -121,6 +139,7 @@
         localStream = new MediaStream();
       }
       statusLine.textContent = 'Waiting for camera...';
+      await requestWakeLock();
     });
 
     socket.on('camera-ready', () => {
@@ -165,6 +184,22 @@
     muteBtn.classList.toggle('active', micOn);
   });
 
+  function pickRecordingMimeType() {
+    const candidates = [
+      'video/webm;codecs=vp9,opus',
+      'video/webm;codecs=vp8,opus',
+      'video/webm',
+      'video/mp4;codecs=h264,aac',
+      'video/mp4',
+    ];
+    for (const type of candidates) {
+      if (window.MediaRecorder && MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(type)) {
+        return type;
+      }
+    }
+    return '';
+  }
+
   recordBtn.addEventListener('click', () => {
     if (!remoteStream || remoteStream.getTracks().length === 0) {
       statusLine.textContent = 'Nothing to record yet — wait for the video to connect.';
@@ -172,35 +207,46 @@
     }
 
     if (!isRecording) {
-      recordedChunks = [];
-      const mimeType = MediaRecorder.isTypeSupported('video/webm;codecs=vp8,opus')
-        ? 'video/webm;codecs=vp8,opus'
-        : 'video/webm';
-      mediaRecorder = new MediaRecorder(remoteStream, { mimeType });
+      if (!window.MediaRecorder) {
+        statusLine.textContent = 'Recording isn\'t supported on this browser.';
+        return;
+      }
 
-      mediaRecorder.ondataavailable = (e) => {
-        if (e.data.size > 0) recordedChunks.push(e.data);
-      };
+      try {
+        recordedChunks = [];
+        const mimeType = pickRecordingMimeType();
+        mediaRecorder = mimeType
+          ? new MediaRecorder(remoteStream, { mimeType })
+          : new MediaRecorder(remoteStream);
+        const actualType = mediaRecorder.mimeType || mimeType || 'video/webm';
+        const ext = actualType.includes('mp4') ? 'mp4' : 'webm';
 
-      mediaRecorder.onstop = () => {
-        const blob = new Blob(recordedChunks, { type: 'video/webm' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        const ts = new Date().toISOString().replace(/[:.]/g, '-');
-        a.href = url;
-        a.download = `home-camera-${ts}.webm`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        setTimeout(() => URL.revokeObjectURL(url), 5000);
-        statusLine.textContent = 'Clip saved to your downloads.';
-      };
+        mediaRecorder.ondataavailable = (e) => {
+          if (e.data.size > 0) recordedChunks.push(e.data);
+        };
 
-      mediaRecorder.start();
-      isRecording = true;
-      recordBtn.textContent = '⏹ Stop & Save';
-      recordBtn.classList.add('active');
-      statusLine.textContent = 'Recording...';
+        mediaRecorder.onstop = () => {
+          const blob = new Blob(recordedChunks, { type: actualType });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          const ts = new Date().toISOString().replace(/[:.]/g, '-');
+          a.href = url;
+          a.download = `home-camera-${ts}.${ext}`;
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          setTimeout(() => URL.revokeObjectURL(url), 5000);
+          statusLine.textContent = 'Clip saved to your downloads.';
+        };
+
+        mediaRecorder.start();
+        isRecording = true;
+        recordBtn.textContent = '⏹ Stop & Save';
+        recordBtn.classList.add('active');
+        statusLine.textContent = 'Recording...';
+      } catch (err) {
+        statusLine.textContent = 'Could not start recording: ' + err.message;
+      }
     } else {
       mediaRecorder.stop();
       isRecording = false;
@@ -216,5 +262,33 @@
       pc = null;
     }
     startCall();
+  });
+
+  function isFullscreen() {
+    return !!(document.fullscreenElement || document.webkitFullscreenElement);
+  }
+
+  fullscreenBtn.addEventListener('click', () => {
+    // iOS Safari doesn't support fullscreening arbitrary elements — only a
+    // <video> itself, via this non-standard method.
+    if (remoteVideo.webkitEnterFullscreen && !videoShell.requestFullscreen) {
+      remoteVideo.webkitEnterFullscreen();
+      return;
+    }
+
+    if (!isFullscreen()) {
+      const req = videoShell.requestFullscreen || videoShell.webkitRequestFullscreen;
+      if (req) req.call(videoShell);
+    } else {
+      const exit = document.exitFullscreen || document.webkitExitFullscreen;
+      if (exit) exit.call(document);
+    }
+  });
+
+  document.addEventListener('fullscreenchange', () => {
+    fullscreenBtn.textContent = isFullscreen() ? '⛶ Exit Full Screen' : '⛶ Full Screen';
+  });
+  document.addEventListener('webkitfullscreenchange', () => {
+    fullscreenBtn.textContent = isFullscreen() ? '⛶ Exit Full Screen' : '⛶ Full Screen';
   });
 })();
