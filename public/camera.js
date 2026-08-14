@@ -18,12 +18,17 @@
   const flipBtn = document.getElementById('flip-btn');
   const muteBtn = document.getElementById('mute-btn');
 
-  let socket, pc, localStream;
+  let socket, localStream;
   let iceServers = null;
   let facingMode = 'environment';
   let micOn = true;
   let startTime = null;
   let clockTimer = null;
+  let wakeLock = null;
+
+  // One RTCPeerConnection PER connected viewer, keyed by that viewer's socket id.
+  // This is what lets several phones watch the same camera at once.
+  const peerConnections = new Map();
 
   function fmtClock(ms) {
     const s = Math.floor(ms / 1000);
@@ -40,55 +45,88 @@
     }, 1000);
   }
 
+  function updateViewerStatus() {
+    const connectedCount = [...peerConnections.values()].filter(
+      (pc) => pc.connectionState === 'connected'
+    ).length;
+
+    if (connectedCount === 0) {
+      connState.textContent = peerConnections.size > 0 ? 'CONNECTING' : 'WAITING FOR VIEWER';
+      hudStatus.textContent = '● STANDBY';
+    } else {
+      connState.textContent = `${connectedCount} VIEWER${connectedCount > 1 ? 'S' : ''} LIVE`;
+      hudStatus.textContent = '● LIVE';
+    }
+    statusLine.textContent = `${connectedCount} connected, ${peerConnections.size} connecting/known.`;
+  }
+
+  // Keeps the screen from auto-locking while this page is open and visible.
+  // This is the only way a browser-based camera can be told to "not sleep" —
+  // it can't run in the true background, so the screen has to stay on and
+  // this tab has to stay in front for streaming to continue.
+  async function requestWakeLock() {
+    try {
+      if ('wakeLock' in navigator) {
+        wakeLock = await navigator.wakeLock.request('screen');
+        wakeLock.addEventListener('release', () => { wakeLock = null; });
+      }
+    } catch (err) {
+      // Not supported or denied — camera still works, screen just may sleep.
+    }
+  }
+
+  document.addEventListener('visibilitychange', async () => {
+    if (document.visibilityState === 'visible') {
+      if (localStream) localVideo.srcObject = localStream;
+      if (!wakeLock) await requestWakeLock();
+    }
+  });
+
   async function getLocalStream() {
-    const stream = await navigator.mediaDevices.getUserMedia({
+    return navigator.mediaDevices.getUserMedia({
       video: { facingMode },
       audio: true,
     });
-    return stream;
   }
 
   async function startCamera() {
     localStream = await getLocalStream();
     localVideo.srcObject = localStream;
     startClock();
+    await requestWakeLock();
   }
 
-  function createPeerConnection() {
-    pc = new RTCPeerConnection(iceServers);
+  function createPeerConnectionFor(viewerId) {
+    const pc = new RTCPeerConnection(iceServers);
+    peerConnections.set(viewerId, pc);
 
     localStream.getTracks().forEach((track) => pc.addTrack(track, localStream));
 
     pc.onicecandidate = (event) => {
       if (event.candidate) {
-        socket.emit('signal', { candidate: event.candidate });
+        socket.emit('signal', { to: viewerId, candidate: event.candidate });
       }
     };
 
     pc.onconnectionstatechange = () => {
-      connState.textContent = pc.connectionState.toUpperCase();
-      if (pc.connectionState === 'connected') {
-        hudStatus.textContent = '● LIVE';
-        statusLine.textContent = 'Viewer connected.';
-      } else if (['disconnected', 'failed', 'closed'].includes(pc.connectionState)) {
-        hudStatus.textContent = '● STANDBY';
-        statusLine.textContent = 'Waiting for viewer to reconnect...';
+      updateViewerStatus();
+      if (['disconnected', 'failed', 'closed'].includes(pc.connectionState)) {
+        peerConnections.delete(viewerId);
+        updateViewerStatus();
       }
     };
 
-    pc.oniceconnectionstatechange = () => {
-      if (pc.connectionState !== 'connected') {
-        statusLine.textContent = `Connecting... (ICE: ${pc.iceConnectionState}, gathering: ${pc.iceGatheringState})`;
-      }
-    };
+    return pc;
   }
 
-  async function handleOffer(offer) {
-    if (!pc) createPeerConnection();
+  async function handleOffer(viewerId, offer) {
+    let pc = peerConnections.get(viewerId);
+    if (!pc) pc = createPeerConnectionFor(viewerId);
     await pc.setRemoteDescription(new RTCSessionDescription(offer));
     const answer = await pc.createAnswer();
     await pc.setLocalDescription(answer);
-    socket.emit('signal', { answer });
+    socket.emit('signal', { to: viewerId, answer });
+    updateViewerStatus();
   }
 
   function connectSocket(pin) {
@@ -117,25 +155,34 @@
       }
     });
 
-    socket.on('viewer-ready', () => {
-      statusLine.textContent = 'Viewer is connecting...';
+    socket.on('viewer-ready', ({ viewerId }) => {
+      statusLine.textContent = 'A viewer is connecting...';
+      // The viewer will send its offer shortly; the peer connection is created
+      // lazily in handleOffer once that arrives.
     });
 
     socket.on('signal', async (data) => {
+      const { from } = data;
+      if (!from) return;
       if (data.offer) {
-        await handleOffer(data.offer);
+        await handleOffer(from, data.offer);
       } else if (data.candidate) {
-        try {
-          await pc.addIceCandidate(new RTCIceCandidate(data.candidate));
-        } catch (e) { /* ignore */ }
+        const pc = peerConnections.get(from);
+        if (pc) {
+          try {
+            await pc.addIceCandidate(new RTCIceCandidate(data.candidate));
+          } catch (e) { /* ignore */ }
+        }
       }
     });
 
-    socket.on('viewer-disconnected', () => {
-      connState.textContent = 'WAITING FOR VIEWER';
-      hudStatus.textContent = '● STANDBY';
-      statusLine.textContent = 'Viewer disconnected.';
-      if (pc) { pc.close(); pc = null; }
+    socket.on('viewer-left', ({ viewerId }) => {
+      const pc = peerConnections.get(viewerId);
+      if (pc) {
+        pc.close();
+        peerConnections.delete(viewerId);
+      }
+      updateViewerStatus();
     });
   }
 
@@ -150,39 +197,42 @@
   });
 
   flipBtn.addEventListener('click', async () => {
+    const previousFacingMode = facingMode;
     facingMode = facingMode === 'environment' ? 'user' : 'environment';
-    const newStream = await getLocalStream();
-    const newVideoTrack = newStream.getVideoTracks()[0];
 
-    if (pc) {
-      const sender = pc.getSenders().find((s) => s.track && s.track.kind === 'video');
-      if (sender) sender.replaceTrack(newVideoTrack);
+    try {
+      // Release the current camera FIRST — most phones can't run two camera
+      // streams at once, so requesting a new one before this would silently fail.
+      const oldVideoTrack = localStream.getVideoTracks()[0];
+      if (oldVideoTrack) {
+        oldVideoTrack.stop();
+        localStream.removeTrack(oldVideoTrack);
+      }
+
+      const newStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode } });
+      const newVideoTrack = newStream.getVideoTracks()[0];
+      localStream.addTrack(newVideoTrack);
+      localVideo.srcObject = localStream;
+
+      // Update every connected viewer's stream with the new camera, not just one.
+      for (const pc of peerConnections.values()) {
+        const sender = pc.getSenders().find((s) => s.track && s.track.kind === 'video');
+        if (sender) await sender.replaceTrack(newVideoTrack);
+      }
+    } catch (err) {
+      facingMode = previousFacingMode;
+      statusLine.textContent = 'Could not switch camera: ' + err.message;
     }
-
-    // Stop old video track, keep using old audio track to avoid re-negotiating audio
-    const oldVideoTrack = localStream.getVideoTracks()[0];
-    if (oldVideoTrack) oldVideoTrack.stop();
-    localStream.removeTrack(oldVideoTrack);
-    localStream.addTrack(newVideoTrack);
-    localVideo.srcObject = localStream;
-
-    // Stop the extra audio track from the new getUserMedia call since we keep the original
-    newStream.getAudioTracks().forEach((t) => t.stop());
   });
 
   muteBtn.addEventListener('click', () => {
     micOn = !micOn;
     if (localStream) {
+      // Toggling .enabled on the shared track affects every peer connection
+      // sending it, so no per-viewer loop is needed here.
       localStream.getAudioTracks().forEach((t) => (t.enabled = micOn));
     }
     muteBtn.textContent = micOn ? '🎙️ Mic On' : '🔇 Mic Off';
     muteBtn.classList.toggle('active', micOn);
-  });
-
-  document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible' && localStream) {
-      // Re-attach in case the browser paused the video element in the background
-      localVideo.srcObject = localStream;
-    }
   });
 })();
