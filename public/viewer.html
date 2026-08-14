@@ -3,62 +3,25 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Home Camera — Viewer Mode</title>
+<title>Home Camera</title>
 <link rel="stylesheet" href="style.css">
-
-<!-- Installable app (PWA) setup -->
-<link rel="manifest" href="manifest-viewer.json">
-<meta name="theme-color" content="#12161a">
-<link rel="apple-touch-icon" href="icons/viewer-192.png">
-<meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="Home Viewer">
 </head>
 <body>
 <div class="wrap">
+  <div class="eyebrow"><span class="dot"></span>HOME CAMERA</div>
+  <h1>Watch your place, from anywhere</h1>
+  <p class="sub">One phone is the eye. The other one watches. Pick which one this phone is.</p>
 
-  <div id="pin-screen">
-    <div class="eyebrow"><span class="dot"></span>VIEWER MODE</div>
-    <h1>Watch your camera live</h1>
-    <p class="sub">Enter the same PIN as the camera phone to connect, from any network.</p>
-    <div class="card">
-      <label for="pin">Room PIN</label>
-      <input type="tel" id="pin" placeholder="••••••" inputmode="numeric" autocomplete="off">
-      <button class="primary" id="join-btn">Connect</button>
-      <div class="error" id="error-msg"></div>
-    </div>
-  </div>
+  <button class="role-btn" onclick="location.href='camera.html'">
+    <div class="name">📷 Set up as Camera</div>
+    <div class="desc">This phone stays put and streams live video from where it's placed.</div>
+  </button>
 
-  <div id="live-screen" style="display:none;">
-    <div class="eyebrow"><span class="dot live"></span>VIEWER — <span id="conn-state">CONNECTING</span></div>
-    <h1>Live</h1>
-
-    <div class="video-shell">
-      <video id="remote-video" autoplay playsinline></video>
-      <div class="hud">
-        <div class="hud-top">
-          <span id="hud-status">● LIVE</span>
-          <span id="hud-clock">00:00:00</span>
-        </div>
-        <div class="hud-bottom">CAM 01 · HOME</div>
-      </div>
-    </div>
-
-    <div class="controls-row">
-      <button class="icon-btn" id="mute-btn">🎙️ Mic On</button>
-      <button class="icon-btn" id="record-btn">⏺ Record</button>
-    </div>
-    <div class="controls-row" style="margin-top:10px;">
-      <button class="icon-btn" id="retry-btn">🔁 Retry Connection</button>
-    </div>
-    <div class="status-line" id="status-line"></div>
-  </div>
-
-  <a class="back-link" href="index.html">&larr; back</a>
+  <button class="role-btn" onclick="location.href='viewer.html'">
+    <div class="name">📱 Set up as Viewer</div>
+    <div class="desc">Watch the camera live, talk through it, and record clips.</div>
+  </button>
 </div>
-
-<script src="/socket.io/socket.io.js"></script>
-<script src="ice-config.js"></script>
-<script src="viewer.js"></script>
+<div class="credit-footer">Developed by Chalie Yigzaw</div>
 </body>
-  </html>
+</html>
