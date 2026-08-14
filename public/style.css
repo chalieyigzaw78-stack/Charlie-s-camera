@@ -259,3 +259,13 @@ video {
 }
 
 .back-link:hover { color: var(--accent-2); }
+
+.credit-footer {
+  text-align: center;
+  margin-top: 20px;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: var(--text-dim);
+  opacity: 0.7;
+}
