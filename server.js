@@ -57,10 +57,10 @@ app.get('/api/ice-servers', (req, res) => {
   });
 });
 
-// Track who is in the room: one "camera" and one "viewer"
+// Track who is in the room: one "camera" and any number of "viewers"
 const room = {
   camera: null, // socket.id of the camera phone
-  viewer: null, // socket.id of the viewer phone
+  viewers: new Set(), // socket.ids of all connected viewer phones
 };
 
 io.on('connection', (socket) => {
@@ -76,39 +76,50 @@ io.on('connection', (socket) => {
       room.camera = socket.id;
       socket.join('room');
       socket.emit('joined', { role: 'camera' });
-      // Let the viewer know a camera is now available
-      if (room.viewer) {
-        io.to(room.viewer).emit('camera-ready');
-        socket.emit('viewer-ready');
-      }
+      // Tell every already-connected viewer a camera is now available —
+      // each one will open its own separate connection to the camera.
+      room.viewers.forEach((viewerId) => {
+        io.to(viewerId).emit('camera-ready');
+      });
     } else if (role === 'viewer') {
-      room.viewer = socket.id;
+      room.viewers.add(socket.id);
       socket.join('room');
       socket.emit('joined', { role: 'viewer' });
-      // If camera is already connected, tell viewer immediately
+      // If camera is already connected, tell this viewer immediately, and let
+      // the camera know a new viewer showed up (it'll set up a connection
+      // just for this one once the viewer's offer arrives).
       if (room.camera) {
         socket.emit('camera-ready');
-        io.to(room.camera).emit('viewer-ready');
+        io.to(room.camera).emit('viewer-ready', { viewerId: socket.id });
       }
     }
   });
 
-  // Relay WebRTC signaling messages (offer/answer/ICE candidates) between the two phones
+  // Relay WebRTC signaling. Viewers always talk to "the camera" (server fills
+  // in who that is). The camera talks to a specific viewer by id, since it
+  // may have several simultaneous connections open.
   socket.on('signal', (data) => {
-    const targetId = socket.id === room.camera ? room.viewer : room.camera;
-    if (targetId) {
-      io.to(targetId).emit('signal', data);
+    if (socket.id === room.camera) {
+      const { to, ...payload } = data;
+      if (to) io.to(to).emit('signal', payload);
+    } else if (room.viewers.has(socket.id)) {
+      if (room.camera) {
+        io.to(room.camera).emit('signal', { from: socket.id, ...data });
+      }
     }
   });
 
   socket.on('disconnect', () => {
     if (socket.id === room.camera) {
       room.camera = null;
-      if (room.viewer) io.to(room.viewer).emit('camera-disconnected');
-    }
-    if (socket.id === room.viewer) {
-      room.viewer = null;
-      if (room.camera) io.to(room.camera).emit('viewer-disconnected');
+      room.viewers.forEach((viewerId) => {
+        io.to(viewerId).emit('camera-disconnected');
+      });
+    } else if (room.viewers.has(socket.id)) {
+      room.viewers.delete(socket.id);
+      if (room.camera) {
+        io.to(room.camera).emit('viewer-left', { viewerId: socket.id });
+      }
     }
     console.log('Disconnected:', socket.id);
   });
